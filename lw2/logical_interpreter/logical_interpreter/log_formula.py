@@ -1,22 +1,9 @@
 from logical_interpreter.logical_interpreter.log_parser import parse
 
-class Table:
-    """
-    Class representing a truth table for a logical formula.
+class Formula:
 
-    Attributes:
-        func (Callable): The parsed logical formula.
-        variables (list[str]): The list of variables in the logical formula.
-        truth_table (list[tuple[dict[str, int], bool]]): The generated truth table.
-    """
 
     def __init__(self, logical_formula: str) -> None:
-        """
-        Initializes a Table instance.
-
-        Args:
-            logical_formula (str): The logical formula as a string.
-        """
         self.func = parse(logical_formula)
         self.variables = self.func.vars
         self.truth_table = self.generate_truth_table()

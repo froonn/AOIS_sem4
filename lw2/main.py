@@ -1,22 +1,20 @@
-from logical_interpreter import Table
+from logical_interpreter import Formula
 
 """
 !(s->(!r|r&q)~(p&!(q->r)))
 """
 
 while True:
-
-
     formula = input('Enter logical formula: ')
 
-    table = Table(formula)
+    formula = Formula(formula)
     
     print('Table')
-    table.print_truth_table()
+    formula.print_truth_table()
 
-    print('Disjunctive Form:', table.disjunctive_form())
-    print('Disjunction Digital Form:', table.disjunction_digital_form())
-    print('Conjunctive Form:', table.conjunctive_form())
-    print('Conjunction Digital Form:', table.conjunction_digital_form())
-    print('Index Form:', table.index_form())
+    print('Disjunctive Form:', formula.disjunctive_form())
+    print('Disjunction Digital Form:', formula.disjunction_digital_form())
+    print('Conjunctive Form:', formula.conjunctive_form())
+    print('Conjunction Digital Form:', formula.conjunction_digital_form())
+    print('Index Form:', formula.index_form())
     print()
