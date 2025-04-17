@@ -256,16 +256,79 @@ def float_to_ieee(f):
 def add_ieee(a_dec, b_dec):
     def parse_ieee(ieee):
         sign = ieee[0]
-        exp = int(ieee[1:9], 2) - 127
-        mantissa = 1.0 + sum(int(ieee[9+i]) * 2**(-i-1) for i in range(23))
-        return (-1 if sign == '1' else 1) * mantissa * 2**exp
+        exponent = int(ieee[1:9], 2)
+        mantissa_bits = ieee[9:]
+        mantissa = 1.0 if exponent != 0 else 0.0
+        for i, bit in enumerate(mantissa_bits):
+            mantissa += int(bit) * 2**(-i-1)
+        return sign, exponent, mantissa, mantissa_bits
+
+    def align_mantissas(sign1, exp1, mant1, sign2, exp2, mant2):
+        if exp1 < exp2:
+            return align_mantissas(sign2, exp2, mant2, sign1, exp1, mant1)
+
+        diff = exp1 - exp2
+        if diff > 0:
+            mant2_adjusted = mant2 / (2**diff)
+            exp2_adjusted = exp1
+        else:
+            mant2_adjusted = mant2
+            exp2_adjusted = exp2
+
+        return (sign1, exp1, mant1, sign2, exp2_adjusted, mant2_adjusted)
+
+    def pack_ieee(sign, exponent, mantissa):
+        if mantissa == 0:
+            return '0' * 32
+
+        original_sign = sign
+        mantissa = abs(mantissa)
+
+        while mantissa >= 2.0:
+            mantissa /= 2
+            exponent += 1
+        while mantissa < 1.0 and exponent > 0:
+            mantissa *= 2
+            exponent -= 1
+
+        if exponent <= 0:
+            exponent = 0
+            mantissa /= 2**(-exponent + 1)
+
+        mantissa -= 1.0
+        mantissa_bits = []
+        for _ in range(23):
+            mantissa *= 2
+            if mantissa >= 1.0:
+                mantissa_bits.append('1')
+                mantissa -= 1.0
+            else:
+                mantissa_bits.append('0')
+
+        exponent = max(0, min(exponent, 255))
+        return f"{original_sign}{exponent:08b}{''.join(mantissa_bits)}"
 
     a_ieee = float_to_ieee(a_dec)
     b_ieee = float_to_ieee(b_dec)
 
-    result = parse_ieee(a_ieee) + parse_ieee(b_ieee)
+    sign_a, exp_a, mant_a, _ = parse_ieee(a_ieee)
+    sign_b, exp_b, mant_b, _ = parse_ieee(b_ieee)
 
-    return float_to_ieee(result), result
+    sign1, exp, mant1, sign2, exp, mant2 = align_mantissas(
+        sign_a, exp_a, mant_a,
+        sign_b, exp_b, mant_b
+    )
+
+    mant1 = mant1 if sign1 == '0' else -mant1
+    mant2 = mant2 if sign2 == '0' else -mant2
+
+    result_mant = mant1 + mant2
+    result_sign = '0' if result_mant >= 0 else '1'
+
+    result_ieee = pack_ieee(result_sign, exp, abs(result_mant))
+    decoded = (-1 if result_sign == '1' else 1) * abs(result_mant) * (2**(exp - 127))
+
+    return result_ieee, decoded
 
 def main():
 
