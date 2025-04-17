@@ -94,15 +94,115 @@ def add_complement(a_dec, b_dec, bits=16):
 def subtract_complement(a_dec, b_dec, bits=16):
     return add_complement(a_dec, -b_dec, bits)
 
+def binary_compare(a, b):
+    max_len = max(len(a), len(b))
+    a_filled = a.zfill(max_len)
+    b_filled = b.zfill(max_len)
+    if a_filled == b_filled:
+        return 0
+    for i in range(max_len):
+        if a_filled[i] != b_filled[i]:
+            return 1 if a_filled[i] == '1' else -1
+    return 0
+
+def binary_add(a, b):
+    max_len = max(len(a), len(b))
+    a = a.zfill(max_len)
+    b = b.zfill(max_len)
+    carry = 0
+    result = []
+    for i in reversed(range(max_len)):
+        s = int(a[i]) + int(b[i]) + carry
+        result.append(str(s % 2))
+        carry = s // 2
+    if carry:
+        result.append('1')
+    return ''.join(reversed(result))
+
+def binary_subtract(a, b):
+    max_len = max(len(a), len(b))
+    a = a.zfill(max_len)
+    b = b.zfill(max_len)
+    result = []
+    borrow = 0
+    for i in reversed(range(max_len)):
+        a_val = int(a[i]) - borrow
+        b_val = int(b[i])
+        if a_val < b_val:
+            a_val += 2
+            borrow = 1
+        else:
+            borrow = 0
+        result.append(str(a_val - b_val))
+    return ''.join(reversed(result)).lstrip('0') or '0'
+
+def binary_multiply(a_bin, b_bin):
+    result = '0'
+    for i in reversed(range(len(b_bin))):
+        if b_bin[i] == '1':
+            temp = a_bin + '0' * (len(b_bin) - i - 1)
+            result = binary_add(result, temp)
+    return result
+
+def binary_divide(a_bin, b_bin, precision):
+    if all(c == '0' for c in b_bin):
+        raise ValueError('Division by zero')
+
+    quotient = ''
+    current = ''
+    divisor = b_bin.lstrip('0') or '0'
+
+    for bit in a_bin:
+        current += bit
+        current = current.lstrip('0') or '0'
+        if binary_compare(current, divisor) >= 0:
+            quotient += '1'
+            current = binary_subtract(current, divisor)
+            current = current.lstrip('0') or '0'
+        else:
+            quotient += '0'
+
+    quotient = quotient.lstrip('0') or '0'
+    if '.' in quotient:
+        quotient = quotient.rstrip('0').rstrip('.')
+
+    if precision > 0:
+        quotient += '.' if '.' not in quotient else ''
+        for _ in range(precision):
+            current += '0'
+            if binary_compare(current, divisor) >= 0:
+                quotient += '1'
+                current = binary_subtract(current, divisor)
+                current = current.lstrip('0') or '0'
+            else:
+                quotient += '0'
+
+    return quotient if quotient != '' else '0'
+
+def direct_to_dec(binary_str):
+    if not binary_str:
+        return 0
+    sign_bit = binary_str[0] if binary_str[0] in ('0', '1') else '0'
+    magnitude = binary_str[1:] if len(binary_str) > 1 else '0'
+    dec = bin_to_dec(magnitude) if magnitude else 0
+    return -dec if sign_bit == '1' else dec
+
 def multiply_direct(a_dec, b_dec, bits=16):
     sign = 0 if (a_dec >= 0) == (b_dec >= 0) else 1
     a_abs = abs(a_dec)
     b_abs = abs(b_dec)
+
     a_bin = dec_to_bin(a_abs, 15)
     b_bin = dec_to_bin(b_abs, 15)
-    product = bin_to_dec(a_bin) * bin_to_dec(b_bin)
-    product_bin = dec_to_bin(product, 15)
-    return ('0' if sign == 0 else '1') + product_bin
+
+    product_bin = binary_multiply(a_bin, b_bin)
+    product_stripped = product_bin.lstrip('0') or '0'
+    overflow = len(product_stripped) > 15
+    product_bin = product_stripped[-15:] if overflow else product_stripped.zfill(15)
+    product_bin = product_bin.zfill(15)
+
+    signed_bin = ('1' if sign else '0') + product_bin
+    return signed_bin, overflow
 
 def divide_direct(a_dec, b_dec, bits=16, precision=5):
     if b_dec == 0:
@@ -110,24 +210,18 @@ def divide_direct(a_dec, b_dec, bits=16, precision=5):
     sign = 0 if (a_dec >= 0) == (b_dec >= 0) else 1
     a_abs = abs(a_dec)
     b_abs = abs(b_dec)
-    int_part = a_abs // b_abs
-    remainder = a_abs % b_abs
-    int_bin = dec_to_bin(int_part, 15)
-    frac_bin = ''
-    for _ in range(precision):
-        remainder *= 2
-        bit = remainder // b_abs
-        frac_bin += str(bit)
-        remainder %= b_abs
-    int_bin = int_bin.zfill(15)
-    binary = f'{int_bin}.{frac_bin}'
-    dec = int_part
-    for i in range(len(frac_bin)):
-        dec += int(frac_bin[i]) * 2**-(i+1)
-    if sign:
-        dec = -dec
-    # direct = direct_code(int_part, bits) if dec == int_part else f'Sign: {sign}, {binary}'
-    return binary, round(dec, 5)
+
+    a_bin = dec_to_bin(a_abs, 15)
+    b_bin = dec_to_bin(b_abs, 15)
+
+    result_bin = binary_divide(a_bin, b_bin, precision)
+    dec = bin_to_dec(result_bin.split('.')[0]) if '.' in result_bin else bin_to_dec(result_bin)
+    if '.' in result_bin:
+        frac_part = result_bin.split('.')[1]
+        dec += sum(int(bit) * 2 ** -(i+1) for i, bit in enumerate(frac_part))
+    dec = -dec if sign else dec
+
+    return result_bin, round(dec, 5)
 
 def float_to_ieee(f):
     if f == 0:
