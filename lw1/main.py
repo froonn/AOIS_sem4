@@ -357,13 +357,13 @@ def main():
 
     mul_bits, overflow = multiply_direct(a, b)
     print(f'\n{a} * {b} = {a * b} in complement:')
-    print(f'Binary: {mul_bits}, Decimal: {complement_to_dec(mul_bits)}, Overflow: {overflow}')
+    print(f'Binary: {mul_bits}, Decimal: {direct_to_dec(mul_bits)}, Overflow: {overflow}')
 
     div_bin, div_dec = divide_direct(a, b)
     print(f'\n{a} / {b} = {div_dec} in direct:')
     print(f'Binary: {div_bin}, Decimal: {div_dec}')
 
-    a = float(input('Enter a fractional number: '))
+    a = float(input('\nEnter a fractional number: '))
     b = float(input('Enter a fractional number: '))
 
     ieee_sum, float_sum = add_ieee(a, b)
