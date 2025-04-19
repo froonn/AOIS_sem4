@@ -1,11 +1,14 @@
 from logical_interpreter import Formula
 
 """
-!(s->(!r|r&q)~(p&!(q->r)))
+!(A->(!B|B&C)~(D&!(C->B)))
 """
 
 while True:
-    formula = input('Enter logical formula: ')
+    formula = input('Enter logical formula (or exit): ')
+
+    if formula == 'exit':
+        break
 
     formula = Formula(formula)
     
