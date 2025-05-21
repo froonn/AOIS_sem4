@@ -79,3 +79,7 @@ class HashTable:
     @property
     def items(self) -> list:
         return [(i, self._table[calculate_extended_hash(i, self._size)].get(i)) for i in self._keys]
+
+    @property
+    def load_factor(self) -> float:
+        return round(len(self._keys) / self._size, 2)
