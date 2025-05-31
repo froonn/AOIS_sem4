@@ -2,7 +2,7 @@ import logical_interpreter
 
 from .calculative_method import calculated_method_dnf, calculated_method_cnf
 from .tabular_method import tabular_method_dnf, tabular_method_cnf
-from .karnaugh_map import optimize_kmap
+from .karnaugh_map import optimize_kmap_dnf, optimize_kmap_cnf
 
 class Formula(logical_interpreter.Formula):
     def __init__(self, formula: str) -> None:
@@ -15,19 +15,19 @@ class Formula(logical_interpreter.Formula):
 
 
     def calculated_method_dnf(self):
-        return calculated_method_dnf(self.min_terms, self.variables)
+        return calculated_method_dnf(self.truth_table)
 
     def calculated_method_cnf(self):
-        return calculated_method_cnf(self.max_terms, self.variables)
+        return calculated_method_cnf(self.truth_table)
 
     def tabular_method_dnf(self):
-        return tabular_method_dnf(self.min_terms, self.variables)
+        return tabular_method_dnf(self.truth_table)
 
     def tabular_method_cnf(self):
-        return tabular_method_cnf(self.max_terms, self.variables)
+        return tabular_method_cnf(self.truth_table)
 
     def kmap_method_dnf(self):
-        return optimize_kmap(self.min_terms, self.variables, use_conjunctive=True)
+        return optimize_kmap_dnf(self.truth_table)
 
     def kmap_method_cnf(self):
-        return optimize_kmap(self.max_terms, self.variables, use_conjunctive=False)
+        return optimize_kmap_cnf(self.truth_table)

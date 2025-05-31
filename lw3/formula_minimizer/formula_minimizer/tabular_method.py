@@ -1,38 +1,70 @@
-from .minimizer_engine import *
+from .minimizer_engine import _quine_mccluskey, _minimize_cover, _implicant_to_string
+
+def tabular_method_dnf(table, verbose=True):
+    """Возвращает минимизированную ДНФ по таблице истинности."""
+    if not table:
+        return "0"
+    variables = sorted(table[0][0].keys())
+    terms = []
+    for row, val in table:
+        if val:
+            t = tuple(row[v] for v in variables)
+            terms.append(t)
+
+    if not terms:
+        return "0"
+
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
+
+    if verbose:
+        print("Первичные импликанты:", prime_implicants)
+        print("Минимальное покрытие:", essential_implicants)
+
+    if not essential_implicants:
+        return "0"
+
+    for imp in essential_implicants:
+        if all(x is None for x in imp):
+            return "1"
+
+    dnf_terms = []
+    for imp in essential_implicants:
+        dnf_terms.append(_implicant_to_string(imp, variables, True))
+
+    return " | ".join(dnf_terms)
 
 
-def tabular_method_dnf(terms, variable_names):
-    num_vars = len(variable_names)
+def tabular_method_cnf(table, verbose=True):
+    """Возвращает минимизированную КНФ по таблице истинности."""
+    if not table:
+        return "1"
+    variables = sorted(table[0][0].keys())
+    terms = []
+    for row, val in table:
+        if not val:
+            t = tuple(row[v] for v in variables)
+            terms.append(t)
 
-    print("\n==== Оптимизация ДНФ (комбинированный подход) ====")
+    if not terms:
+        return "1"
 
-    # Основной процесс обработки
-    core_primes = process_with_table_method(terms, num_vars, variable_names, True)
-    key_implicants = find_critical_terms(core_primes, terms, num_vars, variable_names, True)
-    simplified_terms = remove_redundant_terms(key_implicants, terms, num_vars)
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
 
-    # Формирование результата
-    output_expressions = [f"({binary_to_expression(t, variable_names, True)})"
-                          for t in simplified_terms]
-    final_result = " | ".join(output_expressions)
-    print(f"\nИтоговое выражение (ДНФ): {final_result}")
-    return final_result
+    if verbose:
+        print("Первичные импликанты:", prime_implicants)
+        print("Минимальное покрытие:", essential_implicants)
 
+    if not essential_implicants:
+        return "1"
 
-def tabular_method_cnf(terms, variable_names):
-    num_vars = len(variable_names)
+    for imp in essential_implicants:
+        if all(x is None for x in imp):
+            return "0"
 
-    print("\n==== Оптимизация КНФ (комбинированный подход) ====")
+    cnf_terms = []
+    for imp in essential_implicants:
+        cnf_terms.append(_implicant_to_string(imp, variables, False))
 
-    # Вычислительный процесс
-    core_primes = process_with_table_method(terms, num_vars, variable_names, False)
-    key_implicants = find_critical_terms(core_primes, terms, num_vars, variable_names, False)
-    simplified_terms = remove_redundant_terms(key_implicants, terms, num_vars)
-    final_implicants = find_essential_implicants(simplified_terms, variable_names, False)
-
-    # Сборка финального выражения
-    cnf_components = [f"({binary_to_expression(f, variable_names, False)})"
-                      for f in final_implicants]
-    optimized_result = " & ".join(cnf_components)
-    print(f"\nИтоговое выражение (КНФ): {optimized_result}")
-    return optimized_result
+    return " & ".join(cnf_terms)

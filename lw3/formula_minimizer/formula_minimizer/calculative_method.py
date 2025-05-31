@@ -1,28 +1,60 @@
-from .minimizer_engine import *
+from .minimizer_engine import _get_binary_representation, _quine_mccluskey, _minimize_cover, _implicant_to_string
 
-def calculated_method_dnf(min_terms, labels):
-    bit_size = len(labels)
+def calculated_method_dnf(table, verbose=True):
+    if not table:
+        return "0"
+    variables = sorted(table[0][0].keys())
+    terms = []
+    for row, val in table:
+        if val:
+            t = _get_binary_representation(row, variables)
+            terms.append(t)
 
-    print("\n==== Оптимизация ДНФ (вычислительный метод) ====")
-    core = calculate_core_terms(min_terms, bit_size, labels, True)
-    critical = find_critical_terms(core, min_terms, bit_size, labels, True)
-    optimized = remove_redundant_terms(critical, min_terms, bit_size)
+    if not terms:
+        return "0"
 
-    final_expr = " | ".join(f"({binary_to_expression(x, labels, True)})" for x in optimized)
-    final_expr = " | ".join(labels) if final_expr.strip() == "1" else final_expr
-    print("\nИТОГ (ДНФ): " + final_expr)
-    return final_expr
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
 
-def calculated_method_cnf(max_terms, labels):
-    bit_size = len(labels)
+    if not essential_implicants:
+        return "0"
 
-    print("\n==== Оптимизация КНФ (вычислительный метод) ====")
-    core = calculate_core_terms(max_terms, bit_size, labels, False)
-    critical = find_critical_terms(core, max_terms, bit_size, labels, False)
-    optimized = remove_redundant_terms(critical, max_terms, bit_size)
-    result_terms = find_essential_implicants(optimized, labels, False)
+    for imp in essential_implicants:
+        if all(x is None for x in imp):
+            return "1"
 
-    final_expr = " & ".join(f"({binary_to_expression(x, labels, False)})" for x in result_terms)
-    print("\nИТОГ (КНФ): " + final_expr)
-    return final_expr
+    dnf_terms = []
+    for imp in essential_implicants:
+        dnf_terms.append(_implicant_to_string(imp, variables, True))
 
+    return " | ".join(dnf_terms)
+
+
+def calculated_method_cnf(table, verbose=True):
+    if not table:
+        return "1"
+    variables = sorted(table[0][0].keys())
+    terms = []
+    for row, val in table:
+        if not val:
+            t = _get_binary_representation(row, variables)
+            terms.append(t)
+
+    if not terms:
+        return "1"
+
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
+
+    if not essential_implicants:
+        return "1"
+
+    for imp in essential_implicants:
+        if all(x is None for x in imp):
+            return "0"
+
+    cnf_terms = []
+    for imp in essential_implicants:
+        cnf_terms.append(_implicant_to_string(imp, variables, False))
+
+    return " & ".join(cnf_terms)

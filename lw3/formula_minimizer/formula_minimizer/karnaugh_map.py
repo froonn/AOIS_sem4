@@ -1,30 +1,71 @@
 from .minimizer_engine import *
+from .minimizer_engine import _quine_mccluskey, _minimize_cover, _implicant_to_string
 
 
-def optimize_kmap(terms_list: list, labels: list, use_conjunctive: bool = True) -> list:
-    num_vars = len(labels)
+def optimize_kmap_dnf(table, verbose=True):
+    kmap, variables = build_kmap(table)
+    n_vars = len(variables)
 
-    bin_sequences = translate_to_binary_sequence(terms_list, num_vars)
-    core_components = determine_prime_components(bin_sequences, num_vars)
-    key_components = pick_critical_components(core_components, bin_sequences)
+    if kmap is None or n_vars == 0:
+        return "0"
 
-    op_symbol = '&' if use_conjunctive else '|'
-    logical_expressions = []
+    if verbose:
+        print_kmap(kmap, n_vars)
 
-    for component in key_components:
-        parts = []
-        for lbl, bit_value in zip(labels, component):
-            if bit_value == '-':
-                continue
+    rectangles = find_rectangles(kmap, n_vars, target=1)
+    if not rectangles:
+        return "0"
 
-            if use_conjunctive:
-                parts.append(lbl if bit_value else f"!{lbl}")
-            else:
-                parts.append(f"!{lbl}" if bit_value else lbl)
+    terms = []
+    for row, val in table:
+        if val:
+            t = tuple(row[v] for v in variables)
+            terms.append(t)
 
-        if parts:
-            logical_expressions.append(f"({op_symbol.join(parts)})")
-        else:
-            logical_expressions.append("1" if use_conjunctive else "0")
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
 
-    return logical_expressions
+    dnf_terms = []
+    for imp in essential_implicants:
+        dnf_terms.append(_implicant_to_string(imp, variables, True))
+
+    if not dnf_terms:
+        return "0"
+    return " | ".join(dnf_terms)
+
+
+def optimize_kmap_cnf(table, verbose=True):
+    kmap, variables = build_kmap(table)
+    n_vars = len(variables)
+
+    if kmap is None or n_vars == 0:
+        return "1"
+
+    if verbose:
+        print_kmap(kmap, n_vars)
+
+    # Поиск прямоугольников из нулей
+    rectangles = find_rectangles(kmap, n_vars, target=0)
+    if not rectangles:
+        return "1"
+
+    terms = []
+    for row, val in table:
+        if not val:
+            t = tuple(row[v] for v in variables)
+            terms.append(t)
+
+    if not terms:
+        return "1"
+
+    prime_implicants = _quine_mccluskey(terms, verbose)
+    essential_implicants = _minimize_cover(prime_implicants, terms, verbose)
+
+    cnf_terms = []
+    for imp in essential_implicants:
+        cnf_terms.append(_implicant_to_string(imp, variables, False))
+
+    if not cnf_terms:
+        return "1"
+
+    return " & ".join(cnf_terms)

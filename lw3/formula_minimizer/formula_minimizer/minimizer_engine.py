@@ -1,328 +1,685 @@
-def process_with_table_method(input_terms, bit_size, symbols, disj_form=True):
-    """Реализует табличный метод обработки"""
-    if not isinstance(input_terms, (list, set)):
-        raise TypeError("Input must be collection of terms")
-    if not isinstance(bit_size, int) or bit_size <= 0:
-        raise ValueError("Positive bit length required")
-    if not isinstance(symbols, list) or len(symbols) != bit_size:
-        raise ValueError("Symbol list mismatch")
+import numpy as np
+from itertools import product, chain, combinations
+from collections import defaultdict
 
-    core_implicants = calculate_core_terms(input_terms, bit_size, symbols, disj_form)
-    coverage_chart = build_coverage_chart(core_implicants, input_terms, bit_size, symbols, disj_form)
-    show_coverage_matrix(coverage_chart, input_terms, symbols, disj_form)
-    return core_implicants
+def _get_binary_representation(row, variables_order):
+    return tuple(row[v] for v in variables_order)
 
 
-def build_coverage_chart(core_implicants, term_list, bit_size, symbols,
-                         disj_form=True):
-    """Создает матрицу покрытия"""
-    if not isinstance(core_implicants, (list, set)):
-        raise TypeError("Requires core components collection")
-    return {
-        comp: ["X" if check_component_coverage(comp, integer_to_binary_string(n, bit_size)) else "."
-               for n in term_list]
-        for comp in core_implicants
-    }
+def _weight(term):
+    return sum(1 for x in term if x == 1)
 
 
-def show_coverage_matrix(matrix, term_collection, symbols, disj_form=True):
-    """Визуализирует матрицу покрытия"""
-    header = [transform_term_to_logical(n, symbols, not disj_form).replace(" ", "_")
-              for n in term_collection]
-    print("\nCoverage Matrix:\n" + " " * 25 + " ".join(f"{cell:18}" for cell in header))
-
-    for comp in sorted(matrix.keys(), key=lambda x: x.count('-')):
-        expr = binary_to_expression(comp, symbols, disj_form)
-        print(f"{expr:25} | " + " ".join(f"{('X' if c == 'X' else '.'):18}"
-                                         for c in matrix[comp]))
+def _covers(implicant, term):
+    for i in range(len(implicant)):
+        if implicant[i] is not None and implicant[i] != term[i]:
+            return False
+    return True
 
 
-def transform_term_to_logical(term_index, symbols, for_conj=True):
-    """Преобразует индекс в логическое выражение"""
-    bin_pattern = format(term_index, f'0{len(symbols)}b')
-    parts = [
-        ("!" + v if b == '1' else v) if for_conj
-        else (v if b == '1' else "!" + v)
-        for b, v in zip(bin_pattern, symbols)
-    ]
-    return f"({('|' if for_conj else '&').join(parts)})"
+def _quine_mccluskey(terms, verbose=True):
+    if not terms:
+        return []
+    n = len(terms[0])
+    prime_implicants = []
+    current_terms = terms
+    stage = 0
 
+    if verbose:
+        print("Этап 0:")
+        groups0 = {}
+        for t in current_terms:
+            w = _weight(t)
+            groups0.setdefault(w, []).append(t)
+        for w in sorted(groups0):
+            print(f"Группа {w}: {groups0[w]}")
 
-def translate_to_binary_sequence(input_numbers: list, bit_length: int) -> list:
-    """Преобразует числа в бинарные последовательности"""
-    max_val = 1 << bit_length
-    if any(n >= max_val for n in input_numbers):
-        raise ValueError("Number exceeds bit capacity")
-    return [tuple((n >> i) & 1 for i in reversed(range(bit_length)))
-            for n in input_numbers]
+    while current_terms:
+        stage += 1
+        groups = {}
+        for i, t in enumerate(current_terms):
+            w = _weight(t)
+            groups.setdefault(w, []).append((t, i))
 
+        next_terms = []
+        merged_indices = set()
+        sorted_weights = sorted(groups.keys())
 
-def determine_prime_components(binary_sequences: list, bit_size: int) -> set:
-    """Определяет основные компоненты"""
-    categorized_terms = {}
-    for seq in binary_sequences:
-        key = seq.count(1)
-        categorized_terms.setdefault(key, []).append(seq)
-
-    pending_terms = set(binary_sequences)
-    prime_components = set()
-
-    while categorized_terms:
-        next_group = {}
-        handled = set()
-        for key in sorted(categorized_terms):
-            for t1 in categorized_terms[key]:
-                for t2 in categorized_terms.get(key + 1, []):
-                    merged = merge_term_pairs(t1, t2)
-                    if merged:
-                        handled.update({t1, t2})
-                        next_group.setdefault(merged.count(1), []).append(merged)
-
-        prime_components.update(pending_terms - handled)
-        categorized_terms = {k: v for k, v in next_group.items() if v}
-
-    return prime_components
-
-
-def merge_term_pairs(first_term: tuple, second_term: tuple) -> tuple:
-    """Объединяет пары терминов"""
-    diff = 0
-    result = []
-    for a, b in zip(first_term, second_term):
-        result.append(a if a == b else '-')
-        diff += (a != b)
-    return tuple(result) if diff == 1 else None
-
-
-def pick_critical_components(core_set: set, minimal_terms: list) -> set:
-    """Выбирает ключевые компоненты"""
-    coverage_data = {comp: [mt for mt in minimal_terms
-                            if check_component_coverage(comp, mt)] for comp in core_set}
-
-    essential = {next(iter([c for c in core_set if mt in coverage_data[c]]))
-                 for mt in minimal_terms if len([c for c in core_set
-                                                 if mt in coverage_data[c]]) == 1}
-
-    remaining = set(minimal_terms) - {mt for c in essential for mt in coverage_data[c]}
-    while remaining:
-        best = max(coverage_data.items(),
-                   key=lambda x: len(set(x[1]) & remaining))
-        essential.add(best[0])
-        remaining -= set(best[1])
-
-    return essential
-
-
-def check_component_coverage(component: tuple, target_term: tuple) -> bool:
-    """Проверяет покрытие компонента"""
-    return all(c == '-' or c == t for c, t in zip(component, target_term))
-
-def integer_to_binary_string(num: int, bits: int) -> str:
-    if not isinstance(num, int) or num < 0:
-        raise ValueError("Input number should be non-negative integer")
-    if not isinstance(bits, int) or bits <= 0:
-        raise ValueError("Bit count must be positive integer")
-
-    max_val = 1 << bits
-    if num >= max_val:
-        raise ValueError(f"Number {num} exceeds {bits}-bit capacity")
-
-    return f"{num:0{bits}b}"
-
-
-def combine_terms(term1: str, term2: str) -> str | None:
-    if not isinstance(term1, str) or not isinstance(term2, str):
-        raise TypeError("Terms should be string type")
-    if len(term1) != len(term2):
-        raise ValueError("Terms length mismatch")
-
-    valid_chars = {'0', '1', '-'}
-    if any(c not in valid_chars for c in term1):
-        raise ValueError("Invalid characters in first term")
-    if any(c not in valid_chars for c in term2):
-        raise ValueError("Invalid characters in second term")
-
-    diff_count = 0
-    merged_bits = []
-    for b1, b2 in zip(term1, term2):
-        if b1 != b2:
-            diff_count += 1
-            merged_bits.append('-')
-        else:
-            merged_bits.append(b1)
-
-    return ''.join(merged_bits) if diff_count == 1 else None
-
-
-def binary_to_expression(pattern: str, vars_list: list,
-                         is_and_operation: bool) -> str:
-    if not isinstance(pattern, str):
-        raise TypeError("Pattern must be string type")
-    if not isinstance(vars_list, list):
-        raise TypeError("Variable list required")
-    if len(pattern) != len(vars_list):
-        raise ValueError("Pattern/variable count mismatch")
-    if any(c not in {'0', '1', '-'} for c in pattern):
-        raise ValueError("Invalid pattern symbols")
-    if not all(isinstance(v, str) for v in vars_list):
-        raise ValueError("Variables must be strings")
-
-    parts = []
-    for bit, var_name in zip(pattern, vars_list):
-        if bit == '-':
-            continue
-
-        # XOR condition for negation
-        needs_not = (bit == '1') ^ (not is_and_operation)
-        parts.append(f"!{var_name}" if needs_not else var_name)
-
-    op_symbol = '&' if is_and_operation else '|'
-    joined = op_symbol.join(parts)
-    return joined if joined else ('1' if is_and_operation else '0')
-
-
-def get_literal_set(pattern: str, vars_list: list,
-                    as_conjunction: bool) -> set:
-    if not isinstance(pattern, str):
-        raise TypeError("Pattern must be string")
-    if len(pattern) != len(vars_list):
-        raise ValueError("Pattern-variable length mismatch")
-
-    return {
-        f"{'' if (bit == '1') ^ (not as_conjunction) else '!'}{var_name}"
-        for bit, var_name in zip(pattern, vars_list) if bit != '-'
-    }
-
-
-def check_implicant_coverage(imp: str, term: str) -> bool:
-    if len(imp) != len(term):
-        raise ValueError("Length mismatch between implicant and term")
-
-    return all(i_bit == '-' or i_bit == t_bit
-               for i_bit, t_bit in zip(imp, term))
-
-
-def remove_redundant_terms(primes: list, terms_list: list,
-                           num_bits: int) -> list:
-    active_terms = primes.copy()
-    changed = True
-
-    while changed:
-        changed = False
-        for term in active_terms.copy():
-            # Create temporary list without current term
-            temp_list = [t for t in active_terms if t != term]
-
-            # Check if all minterms are covered by remaining terms
-            all_covered = True
-            for minterm in terms_list:
-                bin_str = format(minterm, f'0{num_bits}b')
-                if not any(check_implicant_coverage(t, bin_str) for t in temp_list):
-                    all_covered = False
-                    break
-
-            if all_covered:
-                active_terms.remove(term)
-                changed = True
-
-    return active_terms
-
-
-def find_essential_implicants(primes: list, vars_list: list,
-                              as_conjunction: bool) -> list:
-    imp_data = [
-        (imp, get_literal_set(imp, vars_list, as_conjunction))
-        for imp in primes
-    ]
-    essential_terms = []
-
-    for idx, (current_term, current_literals) in enumerate(imp_data):
-        has_subset = False
-        for other_idx, (_, other_lits) in enumerate(imp_data):
-            if idx == other_idx:
+        for i in range(len(sorted_weights) - 1):
+            w1 = sorted_weights[i]
+            w2 = sorted_weights[i + 1]
+            if w2 - w1 != 1:
                 continue
-            if other_lits.issubset(current_literals):
-                has_subset = True
-                break
+            for (t1, idx1) in groups[w1]:
+                for (t2, idx2) in groups[w2]:
+                    diff_count = 0
+                    diff_pos = None
+                    for k in range(n):
+                        if t1[k] != t2[k]:
+                            diff_count += 1
+                            diff_pos = k
+                            if diff_count > 1:
+                                break
+                    if diff_count == 1:
+                        new_term = list(t1)
+                        new_term[diff_pos] = None
+                        new_term = tuple(new_term)
+                        merged_indices.add(idx1)
+                        merged_indices.add(idx2)
+                        if new_term not in next_terms:
+                            next_terms.append(new_term)
 
-        if not has_subset:
-            essential_terms.append(current_term)
+        for i, t in enumerate(current_terms):
+            if i not in merged_indices:
+                if t not in prime_implicants:
+                    prime_implicants.append(t)
 
-    return essential_terms
+        if verbose and next_terms:
+            print(f"Этап {stage}:")
+            next_groups = {}
+            for t in next_terms:
+                w = _weight(t)
+                next_groups.setdefault(w, []).append(t)
+            for w in sorted(next_groups):
+                print(f"Группа {w}: {next_groups[w]}")
 
+        current_terms = next_terms
 
-def find_critical_terms(core_terms, term_list, bit_size, labels,
-                        disj_form=True):
-    if not isinstance(core_terms, (list, set)):
-        raise TypeError("Requires term collection")
-    if not isinstance(term_list, (list, set)):
-        raise TypeError("Invalid terms format")
-    if not isinstance(bit_size, int) or bit_size <= 0:
-        raise ValueError("Invalid bit quantity")
-    if not isinstance(labels, list) or len(labels) != bit_size:
-        raise ValueError("Label mismatch")
-
-    return core_terms if disj_form else [
-        current_term for current_term in core_terms if not any(
-            get_literal_set(current_term, labels, disj_form).issubset(
-                get_literal_set(other_term, labels, disj_form)
-            ) for other_term in core_terms if current_term != other_term
-        )
-    ]
+    return prime_implicants
 
 
-def calculate_core_terms(terms_list, bit_size, labels, disj_form=True):
-    if not isinstance(terms_list, (list, set)):
-        raise TypeError("Requires collection of terms")
-    if not isinstance(bit_size, int) or bit_size <= 0:
-        raise ValueError("Positive bit quantity required")
-    if not isinstance(labels, list) or len(labels) != bit_size:
-        raise ValueError("Label list size mismatch")
-    if any(not isinstance(n, int) or n < 0 for n in terms_list):
-        raise ValueError("Negative values not allowed")
-    if any(n >= (1 << bit_size) for n in terms_list):
-        raise ValueError("Value exceeds bit capacity")
+def _minimize_cover(prime_implicants, terms, verbose=True):
+    if not terms or not prime_implicants:
+        return []
+    n_terms = len(terms)
+    cover_sets = []
+    for imp in prime_implicants:
+        cover_set = set()
+        for j, term in enumerate(terms):
+            if _covers(imp, term):
+                cover_set.add(j)
+        cover_sets.append(cover_set)
 
-    category_map = {}
-    for num in terms_list:
-        bin_repr = integer_to_binary_string(num, bit_size)
-        active_bits = bin_repr.count('1')
-        category_map.setdefault(active_bits, set()).add(bin_repr)
+    uncovered = set(range(n_terms))
+    solution_inds = []
 
-    print("\n=== Этап объединения: Начальные группы ===")
-    for cnt in sorted(category_map):
-        elements = sorted(category_map[cnt])
-        print(f"Категория {cnt}: " + ", ".join(
-            binary_to_expression(e, labels, disj_form) for e in elements))
-
-    phase = 1
-    core_results = []
-    while True:
-        updated_map = {}
-        used_terms = set()
-        sorted_counts = sorted(category_map.keys())
-
-        for i in range(len(sorted_counts) - 1):
-            for first_term in category_map[sorted_counts[i]]:
-                for second_term in category_map[sorted_counts[i + 1]]:
-                    combined = combine_terms(first_term, second_term)
-                    if combined:
-                        updated_map.setdefault(combined.count('1'), set()).add(combined)
-                        used_terms.update({first_term, second_term})
-
-        core_results.extend(t for k in category_map for t in category_map[k] if t not in used_terms)
-
-        if not updated_map:
-            print(f"\n=== Завершено на фазе {phase} ===")
+    while uncovered:
+        best_imp_idx = None
+        best_cover = set()
+        for i, cover_set in enumerate(cover_sets):
+            if i in solution_inds:
+                continue
+            cover = cover_set & uncovered
+            if len(cover) > len(best_cover):
+                best_cover = cover
+                best_imp_idx = i
+        if best_imp_idx is None:
             break
+        solution_inds.append(best_imp_idx)
+        uncovered -= best_cover
 
-        print(f"\n=== Фаза {phase} ===")
-        for key in sorted(updated_map.keys()):
-            items = sorted(updated_map[key])
-            print(f"Категория {key}: " + ", ".join(
-                binary_to_expression(x, labels, disj_form) for x in items))
+    return [prime_implicants[i] for i in solution_inds]
 
-        phase += 1
-        category_map = updated_map
 
-    return sorted(set(core_results))
+def _implicant_to_string(implicant, variables, is_dnf):
+    parts = []
+    for i, var in enumerate(variables):
+        if implicant[i] is not None:
+            if is_dnf:
+                if implicant[i] == 0:
+                    parts.append(f"!{var}")
+                else:
+                    parts.append(var)
+            else:
+                if implicant[i] == 0:
+                    parts.append(var)
+                else:
+                    parts.append(f"!{var}")
+    if not parts:
+        return "1" if is_dnf else "0"
+    if is_dnf:
+        return f'({" & ".join(parts)})'
+    else:
+        return f'({" | ".join(parts)})'
+
+
+def _quine_mccluskey(terms, verbose=True):
+    """Реализует алгоритм Квайна-МакКласки для поиска первичных импликант."""
+    if not terms:
+        return []
+    n = len(terms[0])
+    current_terms = terms
+    prime_implicants = []
+    stage = 0
+
+    if verbose:
+        print("Этап 0:")
+        groups0 = {}
+        for t in current_terms:
+            w = _weight(t)
+            groups0.setdefault(w, []).append(t)
+        for w in sorted(groups0):
+            print(f"  Группа {w}: {groups0[w]}")
+
+    while current_terms:
+        groups = {}
+        for idx, t in enumerate(current_terms):
+            w = _weight(t)
+            groups.setdefault(w, []).append((t, idx))
+
+        next_terms = []
+        merged = [False] * len(current_terms)
+        sorted_weights = sorted(groups.keys())
+
+        for i in range(len(sorted_weights) - 1):
+            w1 = sorted_weights[i]
+            w2 = sorted_weights[i + 1]
+            if w2 - w1 != 1:
+                continue
+            for t1, idx1 in groups[w1]:
+                for t2, idx2 in groups[w2]:
+                    diff_count = 0
+                    diff_pos = -1
+                    for k in range(n):
+                        if t1[k] != t2[k]:
+                            diff_count += 1
+                            diff_pos = k
+                            if diff_count > 1:
+                                break
+                    if diff_count == 1:
+                        new_term = list(t1)
+                        new_term[diff_pos] = None
+                        new_term = tuple(new_term)
+                        merged[idx1] = True
+                        merged[idx2] = True
+                        if new_term not in next_terms:
+                            next_terms.append(new_term)
+
+        for i, t in enumerate(current_terms):
+            if not merged[i]:
+                if t not in prime_implicants:
+                    prime_implicants.append(t)
+
+        if next_terms and verbose:
+            stage += 1
+            print(f"Этап {stage}:")
+            next_groups = {}
+            for t in next_terms:
+                w = _weight(t)
+                next_groups.setdefault(w, []).append(t)
+            for w in sorted(next_groups):
+                print(f"  Группа {w}: {next_groups[w]}")
+
+        current_terms = next_terms
+
+    return prime_implicants
+
+
+def _minimize_cover(prime_implicants, terms, verbose=True):
+    """Минимизирует покрытие с помощью жадного алгоритма и выводит таблицу покрытия."""
+    if not prime_implicants or not terms:
+        return []
+
+    if verbose:
+        header = "      "
+        for term in terms:
+            header += f"  {term}   "
+        print(header)
+
+        for imp in prime_implicants:
+            row = f"{str(imp):6}|"
+            for term in terms:
+                if _covers(imp, term):
+                    row += "   V   "
+                else:
+                    row += "       "
+            print(row)
+
+    cover_sets = []
+    for imp in prime_implicants:
+        cover_set = set()
+        for j, term in enumerate(terms):
+            if _covers(imp, term):
+                cover_set.add(j)
+        cover_sets.append(cover_set)
+
+    uncovered = set(range(len(terms)))
+    cover_indices = []
+
+    while uncovered:
+        best_idx = None
+        best_cover = set()
+        for i, cov_set in enumerate(cover_sets):
+            current_cover = cov_set & uncovered
+            if len(current_cover) > len(best_cover):
+                best_cover = current_cover
+                best_idx = i
+        if best_idx is None:
+            break
+        cover_indices.append(best_idx)
+        uncovered -= best_cover
+
+    return [prime_implicants[i] for i in cover_indices]
+
+# Преобразование значения в 0/1
+def to_binary(val):
+    if isinstance(val, bool):
+        return 1 if val else 0
+    return 1 if val else 0
+
+
+# Получение всех подмножеств (кроме пустого)
+def powerset(s):
+    return chain.from_iterable(combinations(s, r) for r in range(1, len(s) + 1))
+
+
+# Коды Грея для 2 переменных
+gray_codes_2 = {
+    (0, 0): 0,
+    (0, 1): 1,
+    (1, 1): 2,
+    (1, 0): 3
+}
+
+# Обратное преобразование индекса в комбинацию
+gray_index_to_comb = {
+    0: (0, 0),
+    1: (0, 1),
+    2: (1, 1),
+    3: (1, 0)
+}
+
+
+# Построение карты Карно
+def build_kmap(table):
+    if not table:
+        return None, []
+
+    # Получаем переменные и сортируем
+    variables = sorted(table[0][0].keys())
+    n = len(variables)
+
+    # Инициализация карты в зависимости от количества переменных
+    if n == 0:
+        return None, []
+    elif n == 1:
+        kmap = np.zeros((1, 2), dtype=int)
+    elif n == 2:
+        kmap = np.zeros((2, 2), dtype=int)
+    elif n == 3:
+        kmap = np.zeros((2, 4), dtype=int)
+    elif n == 4:
+        kmap = np.zeros((4, 4), dtype=int)
+    elif n == 5:
+        kmap = [np.zeros((4, 4), dtype=int), np.zeros((4, 4), dtype=int)]
+    else:
+        raise ValueError("До 5 переменных")
+
+    # Заполняем карту
+    for row, val in table:
+        vals = [row[v] for v in variables]
+        bin_val = to_binary(val)
+
+        if n == 1:
+            kmap[0, vals[0]] = bin_val
+        elif n == 2:
+            kmap[vals[0], vals[1]] = bin_val
+        elif n == 3:
+            a = vals[0]
+            bc = (vals[1], vals[2])
+            col = gray_codes_2[bc]
+            kmap[a, col] = bin_val
+        elif n == 4:
+            ab = (vals[0], vals[1])
+            cd = (vals[2], vals[3])
+            row_idx = gray_codes_2[ab]
+            col_idx = gray_codes_2[cd]
+            kmap[row_idx, col_idx] = bin_val
+        elif n == 5:
+            a = vals[0]
+            bc = (vals[1], vals[2])
+            de = (vals[3], vals[4])
+            row_idx = gray_codes_2[bc]
+            col_idx = gray_codes_2[de]
+            kmap[a][row_idx, col_idx] = bin_val
+
+    return kmap, variables
+
+
+# Проверка, является ли набор непрерывным прямоугольником
+def is_continuous_rect(indices, size):
+    if not indices:
+        return False
+
+    indices = sorted(indices)
+    # Проверка непрерывности с учетом цикличности
+    if all((indices[i] + 1) % size == indices[i + 1] for i in range(len(indices) - 1)):
+        return True
+    # Проверка непрерывности с оберткой
+    if indices[0] == 0 and indices[-1] == size - 1:
+        return all(i in indices for i in range(indices[0], size)) and \
+            all(i in indices for i in range(0, indices[-1] + 1))
+    return False
+
+
+# Поиск всех прямоугольников в карте
+def find_rectangles(kmap, n_vars, target=1):
+    rectangles = []
+
+    if n_vars <= 4:
+        # 2D карта
+        if n_vars == 1:
+            rows, cols = 1, 2
+        elif n_vars == 2:
+            rows, cols = 2, 2
+        elif n_vars == 3:
+            rows, cols = 2, 4
+        else:  # n_vars == 4
+            rows, cols = 4, 4
+
+        kmap_2d = kmap
+
+        # Исправлено: убрана лишняя скобка после range(cols)
+        for row_set in powerset(range(rows)):
+            for col_set in powerset(range(cols)):
+                if not is_continuous_rect(row_set, rows) or not is_continuous_rect(col_set, cols):
+                    continue
+
+                # Проверяем все клетки в прямоугольнике
+                valid = True
+                for r in row_set:
+                    for c in col_set:
+                        if kmap_2d[r, c] != target:
+                            valid = False
+                            break
+                    if not valid:
+                        break
+
+                if valid:
+                    rectangles.append((set(), set(row_set), set(col_set)))
+
+    elif n_vars == 5:
+        # 3D карта (A, BC, DE)
+        for a_set in powerset([0, 1]):
+            a_set = set(a_set)
+            for row_set in powerset(range(4)):
+                for col_set in powerset(range(4)):
+                    if not is_continuous_rect(row_set, 4) or not is_continuous_rect(col_set, 4):
+                        continue
+
+                    valid = True
+                    for a in a_set:
+                        for r in row_set:
+                            for c in col_set:
+                                if kmap[a][r, c] != target:
+                                    valid = False
+                                    break
+                            if not valid:
+                                break
+                        if not valid:
+                            break
+
+                    if valid:
+                        rectangles.append((a_set, set(row_set), set(col_set)))
+
+    return rectangles
+
+
+# Фильтрация максимальных прямоугольников
+def filter_max_rectangles(rectangles):
+    max_rects = []
+    for rect in rectangles:
+        a_set, rows, cols = rect
+        is_max = True
+        for other in rectangles:
+            a_other, rows_other, cols_other = other
+            if a_set.issubset(a_other) and rows.issubset(rows_other) and cols.issubset(cols_other) and rect != other:
+                is_max = False
+                break
+        if is_max:
+            max_rects.append(rect)
+    return max_rects
+
+
+# Жадное покрытие
+def greedy_cover(kmap, rectangles, n_vars, target=1):
+    covered = set()
+    to_cover = set()
+
+    # Собираем все клетки, которые нужно покрыть
+    if n_vars <= 4:
+        if n_vars == 1:
+            for c in range(2):
+                if kmap[0, c] == target:
+                    to_cover.add(("2D", 0, c))
+        elif n_vars == 2:
+            for r in range(2):
+                for c in range(2):
+                    if kmap[r, c] == target:
+                        to_cover.add(("2D", r, c))
+        elif n_vars == 3:
+            for r in range(2):
+                for c in range(4):
+                    if kmap[r, c] == target:
+                        to_cover.add(("2D", r, c))
+        elif n_vars == 4:
+            for r in range(4):
+                for c in range(4):
+                    if kmap[r, c] == target:
+                        to_cover.add(("2D", r, c))
+    elif n_vars == 5:
+        for a in [0, 1]:
+            for r in range(4):
+                for c in range(4):
+                    if kmap[a][r, c] == target:
+                        to_cover.add(("3D", a, r, c))
+
+    selected = []
+    while to_cover:
+        best_rect = None
+        best_cover = set()
+        for rect in rectangles:
+            a_set, rows, cols = rect
+            cover = set()
+            if n_vars <= 4:
+                for r in rows:
+                    for c in cols:
+                        if ("2D", r, c) in to_cover:
+                            cover.add(("2D", r, c))
+            elif n_vars == 5:
+                for a in a_set:
+                    for r in rows:
+                        for c in cols:
+                            if ("3D", a, r, c) in to_cover:
+                                cover.add(("3D", a, r, c))
+            if len(cover) > len(best_cover):
+                best_cover = cover
+                best_rect = rect
+        if best_rect is None:
+            break
+        selected.append(best_rect)
+        to_cover -= best_cover
+        rectangles.remove(best_rect)
+
+    return selected
+
+
+# Преобразование прямоугольника в терм
+def rect_to_term(rect, variables, for_dnf=True):
+    a_set, rows, cols = rect
+    n_vars = len(variables)
+    term = []
+
+    if n_vars == 1:
+        if len(rows) == 1 and len(cols) == 2:  # Вся строка
+            return "" if for_dnf else f"{variables[0]} | ~{variables[0]}"
+        if 0 in cols:
+            term.append(f"~{variables[0]}" if for_dnf else variables[0])
+        if 1 in cols:
+            term.append(variables[0] if for_dnf else f"~{variables[0]}")
+
+    elif n_vars == 2:
+        if len(rows) == 2:  # Все значения A
+            pass
+        elif 0 in rows:
+            term.append(f"~{variables[0]}" if for_dnf else variables[0])
+        elif 1 in rows:
+            term.append(variables[0] if for_dnf else f"~{variables[0]}")
+
+        if len(cols) == 2:  # Все значения B
+            pass
+        elif 0 in cols:
+            term.append(f"~{variables[1]}" if for_dnf else variables[1])
+        elif 1 in cols:
+            term.append(variables[1] if for_dnf else f"~{variables[1]}")
+
+    elif n_vars == 3:
+        # A (строки)
+        if len(rows) == 2:  # Все A
+            pass
+        elif 0 in rows:
+            term.append(f"~{variables[0]}" if for_dnf else variables[0])
+        elif 1 in rows:
+            term.append(variables[0] if for_dnf else f"~{variables[0]}")
+
+        # BC (столбцы)
+        if len(cols) == 4:  # Все BC
+            pass
+        else:
+            bc_vals = [gray_index_to_comb[c] for c in cols]
+            b_vals = set(b for b, c in bc_vals)
+            c_vals = set(c for b, c in bc_vals)
+
+            if len(b_vals) == 1:
+                b_val = next(iter(b_vals))
+                term.append(f"~{variables[1]}" if b_val == 0 and for_dnf else variables[1])
+                term.append(variables[1] if b_val == 1 and for_dnf else f"~{variables[1]}")
+            if len(c_vals) == 1:
+                c_val = next(iter(c_vals))
+                term.append(f"~{variables[2]}" if c_val == 0 and for_dnf else variables[2])
+                term.append(variables[2] if c_val == 1 and for_dnf else f"~{variables[2]}")
+
+    elif n_vars == 4:
+        # AB (строки)
+        if len(rows) == 4:  # Все AB
+            pass
+        else:
+            ab_vals = [gray_index_to_comb[r] for r in rows]
+            a_vals = set(a for a, b in ab_vals)
+            b_vals = set(b for a, b in ab_vals)
+
+            if len(a_vals) == 1:
+                a_val = next(iter(a_vals))
+                term.append(f"~{variables[0]}" if a_val == 0 and for_dnf else variables[0])
+                term.append(variables[0] if a_val == 1 and for_dnf else f"~{variables[0]}")
+            if len(b_vals) == 1:
+                b_val = next(iter(b_vals))
+                term.append(f"~{variables[1]}" if b_val == 0 and for_dnf else variables[1])
+                term.append(variables[1] if b_val == 1 and for_dnf else f"~{variables[1]}")
+
+        # CD (столбцы)
+        if len(cols) == 4:  # Все CD
+            pass
+        else:
+            cd_vals = [gray_index_to_comb[c] for c in cols]
+            c_vals = set(c for c, d in cd_vals)
+            d_vals = set(d for c, d in cd_vals)
+
+            if len(c_vals) == 1:
+                c_val = next(iter(c_vals))
+                term.append(f"~{variables[2]}" if c_val == 0 and for_dnf else variables[2])
+                term.append(variables[2] if c_val == 1 and for_dnf else f"~{variables[2]}")
+            if len(d_vals) == 1:
+                d_val = next(iter(d_vals))
+                term.append(f"~{variables[3]}" if d_val == 0 and for_dnf else variables[3])
+                term.append(variables[3] if d_val == 1 and for_dnf else f"~{variables[3]}")
+
+    elif n_vars == 5:
+        # A
+        if len(a_set) == 2:  # Охватывает обе карты
+            pass
+        elif 0 in a_set:
+            term.append(f"~{variables[0]}" if for_dnf else variables[0])
+        elif 1 in a_set:
+            term.append(variables[0] if for_dnf else f"~{variables[0]}")
+
+        # BC (строки)
+        if len(rows) == 4:  # Все BC
+            pass
+        else:
+            bc_vals = [gray_index_to_comb[r] for r in rows]
+            b_vals = set(b for b, c in bc_vals)
+            c_vals = set(c for b, c in bc_vals)
+
+            if len(b_vals) == 1:
+                b_val = next(iter(b_vals))
+                term.append(f"~{variables[1]}" if b_val == 0 and for_dnf else variables[1])
+                term.append(variables[1] if b_val == 1 and for_dnf else f"~{variables[1]}")
+            if len(c_vals) == 1:
+                c_val = next(iter(c_vals))
+                term.append(f"~{variables[2]}" if c_val == 0 and for_dnf else variables[2])
+                term.append(variables[2] if c_val == 1 and for_dnf else f"~{variables[2]}")
+
+        # DE (столбцы)
+        if len(cols) == 4:  # Все DE
+            pass
+        else:
+            de_vals = [gray_index_to_comb[c] for c in cols]
+            d_vals = set(d for d, e in de_vals)
+            e_vals = set(e for d, e in de_vals)
+
+            if len(d_vals) == 1:
+                d_val = next(iter(d_vals))
+                term.append(f"~{variables[3]}" if d_val == 0 and for_dnf else variables[3])
+                term.append(variables[3] if d_val == 1 and for_dnf else f"~{variables[3]}")
+            if len(e_vals) == 1:
+                e_val = next(iter(e_vals))
+                term.append(f"~{variables[4]}" if e_val == 0 and for_dnf else variables[4])
+                term.append(variables[4] if e_val == 1 and for_dnf else f"~{variables[4]}")
+
+    return term
+
+
+# Вывод карты Карно
+def print_kmap(kmap, n_vars):
+    if n_vars == 0:
+        return
+    print("\nКарта Карно:")
+    if n_vars == 1:
+        print("   A=0 | A=1")
+        print(f"   {kmap[0, 0]}    | {kmap[0, 1]}")
+    elif n_vars == 2:
+        print("     B=0 | B=1")
+        print(f"A=0   {kmap[0, 0]}   | {kmap[0, 1]}")
+        print(f"A=1   {kmap[1, 0]}   | {kmap[1, 1]}")
+    elif n_vars == 3:
+        print("     BC:00 01 11 10")
+        for i in range(2):
+            print(f"A={i}   ", end="")
+            for j in range(4):
+                print(f" {kmap[i, j]} ", end="")
+            print()
+    elif n_vars == 4:
+        print("     CD:00 01 11 10")
+        ab_labels = ["AB=00", "AB=01", "AB=11", "AB=10"]
+        for i, label in enumerate(ab_labels):
+            print(f"{label} ", end="")
+            for j in range(4):
+                print(f" {kmap[i, j]} ", end="")
+            print()
+    elif n_vars == 5:
+        print("A=0:")
+        print("     DE:00 01 11 10")
+        bc_labels = ["BC=00", "BC=01", "BC=11", "BC=10"]
+        for i, label in enumerate(bc_labels):
+            print(f"{label} ", end="")
+            for j in range(4):
+                print(f" {kmap[0][i, j]} ", end="")
+            print()
+        print("\nA=1:")
+        print("     DE:00 01 11 10")
+        for i, label in enumerate(bc_labels):
+            print(f"{label} ", end="")
+            for j in range(4):
+                print(f" {kmap[1][i, j]} ", end="")
+            print()

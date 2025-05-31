@@ -1,5 +1,10 @@
 from formula_minimizer import Formula
 
+"""
+(A->B)&(!C)&(D|E)
+!(A->(!B|B&C)~(D&!(C->B)))
+"""
+
 
 while True:
     formula = input('Enter logical formula: ')
@@ -31,11 +36,11 @@ while True:
     print("\nРезультаты минимизации для СДНФ:")
     print(f"  1) Расчетный метод: {dnf_calculated}")
     print(f"  2) Расчетно-табличный метод: {dnf_tabular}")
-    print(f"  3) Метод Карно: {' | '.join(dnf_kmap)}")
+    print(f"  3) Метод Карно: {dnf_kmap}")
 
     print("\nРезультаты минимизации для СКНФ:")
     print(f"  1) Расчетный метод: {cnf_calculated}")
     print(f"  2) Расчетно-табличный метод: {cnf_tabular}")
-    print(f"  3) Метод Карно: {' & '.join(cnf_kmap)}")
+    print(f"  3) Метод Карно: {cnf_kmap}")
 
     print()
