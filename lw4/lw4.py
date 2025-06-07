@@ -1,273 +1,301 @@
 import io
 from functools import cmp_to_key
 
-class Term:
-    def __init__(self, vars_str):
-        self.vars = vars_str
-        self.used = False
-        self.covered_terms = {vars_str}
 
-def can_glue(t1: str, t2: str, var_count: int) -> bool:
-    diff = 0
-    for i in range(var_count):
-        if t1[i] != t2[i]:
-            diff += 1
-        if diff > 1:
+class BooleanMinTerm:
+    def __init__(self, binary_str: str):
+        self.binary_representation = binary_str
+        self.is_processed = False
+        self.original_minterms_covered = {binary_str}
+
+
+def can_combine_terms(term1_binary: str, term2_binary: str, num_variables: int) -> bool:
+    bit_differences = 0
+    for i in range(num_variables):
+        if term1_binary[i] != term2_binary[i]:
+            bit_differences += 1
+        if bit_differences > 1:
             return False
-    return diff == 1
+    return bit_differences == 1
 
-def glue(t1: str, t2: str) -> str:
-    result = list(t1)
-    for i in range(len(t1)):
-        if t1[i] != t2[i]:
-            result[i] = '-'
-    return "".join(result)
 
-def format_dnf_term(term: str, var_names: list[str]) -> str:
-    result = []
-    for i, char in enumerate(term):
-        if char == '-':
+def combine_terms(term1_binary: str, term2_binary: str) -> str:
+    combined_representation = list(term1_binary)
+    for i in range(len(term1_binary)):
+        if term1_binary[i] != term2_binary[i]:
+            combined_representation[i] = '-'
+    return "".join(combined_representation)
+
+
+def format_logical_expression(binary_term: str, variable_names: list[str]) -> str:
+    expression_literals = []
+    for i, bit_val in enumerate(binary_term):
+        if bit_val == '-':
             continue
-        if char == '0':
-            result.append(f"!{var_names[i]}")
-        elif char == '1':
-            result.append(var_names[i])
-    return "&".join(result) if result else "1"
+        if bit_val == '0':
+            expression_literals.append(f"!{variable_names[i]}")
+        elif bit_val == '1':
+            expression_literals.append(variable_names[i])
+    return "&".join(expression_literals) if expression_literals else "1"
 
-def glue_terms(terms: list[Term], var_names: list[str]) -> list[Term]:
-    print("Стадия склеивания:")
-    var_count = len(var_names)
-    glued = True
-    while glued:
-        glued = False
-        new_terms_set = set()
-        used = [False] * len(terms)
-        for i in range(len(terms)):
-            for j in range(i + 1, len(terms)):
-                if can_glue(terms[i].vars, terms[j].vars, var_count):
-                    glued_term_str = glue(terms[i].vars, terms[j].vars)
-                    new_terms_set.add(glued_term_str)
-                    used[i] = used[j] = True
-                    glued = True
-                    print(f"({format_dnf_term(terms[i].vars, var_names)}) | "
-                          f"({format_dnf_term(terms[j].vars, var_names)}) => "
-                          f"({format_dnf_term(glued_term_str, var_names)})")
-        for i in range(len(terms)):
-            if not used[i]:
-                new_terms_set.add(terms[i].vars)
-        terms = [Term(t) for t in new_terms_set]
-    return terms
 
-def parse_dnf_term(term: str, var_names: list[str]) -> str:
-    result = ['-'] * len(var_names)
-    current_term_literals = []
+def minimize_terms_quine_mccluskey(initial_terms: list[BooleanMinTerm], variable_names: list[str]) -> list[
+    BooleanMinTerm]:
+    print("\n--- Этап объединения импликантов ---")
+    num_variables = len(variable_names)
 
-    i = 0
-    while i < len(term):
-        if term[i] == '!':
-            var = term[i + 1]
-            current_term_literals.append((var, '0'))
-            i += 2
-        elif term[i].isalpha():
-            var = term[i]
-            current_term_literals.append((var, '1'))
-            i += 1
-        else:
-            i += 1
+    current_terms_stage = initial_terms
+
+    found_new_combinations = True
+    while found_new_combinations:
+        found_new_combinations = False
+        next_stage_implicants = set()
+
+        term_used_flags = [False] * len(current_terms_stage)
+
+        for i in range(len(current_terms_stage)):
+            for j in range(i + 1, len(current_terms_stage)):
+                term1 = current_terms_stage[i]
+                term2 = current_terms_stage[j]
+
+                if can_combine_terms(term1.binary_representation, term2.binary_representation, num_variables):
+                    combined_binary_str = combine_terms(term1.binary_representation, term2.binary_representation)
+
+                    new_implicant = BooleanMinTerm(combined_binary_str)
+                    new_implicant.original_minterms_covered.update(term1.original_minterms_covered)
+                    new_implicant.original_minterms_covered.update(term2.original_minterms_covered)
+
+                    next_stage_implicants.add(new_implicant.binary_representation)
+
+                    term_used_flags[i] = True
+                    term_used_flags[j] = True
+                    found_new_combinations = True
+
+                    print(f"Объединены ({format_logical_expression(term1.binary_representation, variable_names)}) "
+                          f"и ({format_logical_expression(term2.binary_representation, variable_names)}) "
+                          f"для образования ({format_logical_expression(combined_binary_str, variable_names)})")
+
+        for i in range(len(current_terms_stage)):
+            if not term_used_flags[i]:
+                next_stage_implicants.add(current_terms_stage[i].binary_representation)
+
+        current_terms_stage = [BooleanMinTerm(t_str) for t_str in next_stage_implicants]
+
+    return current_terms_stage
+
+
+def _sort_alphanumeric_characters(char_a, char_b):
+    return (char_a > char_b) - (char_a < char_b)
+
+
+def parse_boolean_function_string(function_string: str, variable_names_list: list[str]) -> list[BooleanMinTerm]:
+    function_terms = []
+    variable_names_list.clear()
+    unique_variables_found = set()
+
+    raw_term_strings = function_string.split('|')
+
+    for current_raw_term in raw_term_strings:
+        cleaned_term = current_raw_term.replace(' ', '')
+        if not cleaned_term:
+            continue
+        for char_in_term in cleaned_term:
+            if char_in_term.isalpha():
+                unique_variables_found.add(char_in_term)
+
+    variable_names_list.extend(sorted(list(unique_variables_found), key=cmp_to_key(_sort_alphanumeric_characters)))
+
+    for current_raw_term in raw_term_strings:
+        cleaned_term = current_raw_term.replace(' ', '')
+        if not cleaned_term:
             continue
 
-    for literal_var, state in current_term_literals:
-        try:
-            index = var_names.index(literal_var)
-            result[index] = state
-        except ValueError:
-            pass
+        parsed_binary_rep = ['-'] * len(variable_names_list)
 
-    return "".join(result)
+        position_in_term = 0
+        while position_in_term < len(cleaned_term):
+            variable_char = ''
+            literal_value = ''
 
-def _custom_char_sort_key(a, b):
-    return (a > b) - (a < b)
-
-def parse_function(input_str: str, var_names: list[str]) -> list[Term]:
-    terms = []
-    var_names.clear()
-    unique_vars_set = set()
-
-    temp_terms_str = input_str.split('|')
-    for temp_term in temp_terms_str:
-        temp_term = temp_term.replace(' ', '')
-        if not temp_term:
-            continue
-        for char in temp_term:
-            if char.isalpha():
-                unique_vars_set.add(char)
-
-    var_names.extend(sorted(list(unique_vars_set), key=cmp_to_key(_custom_char_sort_key)))
-
-    for term_str in temp_terms_str:
-        term_str = term_str.replace(' ', '')
-        if not term_str:
-            continue
-
-        parsed_binary_term = ['-'] * len(var_names)
-
-        pos = 0
-        while pos < len(term_str):
-            literal_char = ''
-            value = ''
-
-            if term_str[pos] == '!':
-                literal_char = term_str[pos + 1]
-                value = '0'
-                pos += 2
-            elif term_str[pos].isalpha():
-                literal_char = term_str[pos]
-                value = '1'
-                pos += 1
+            if cleaned_term[position_in_term] == '!':
+                variable_char = cleaned_term[position_in_term + 1]
+                literal_value = '0'
+                position_in_term += 2
+            elif cleaned_term[position_in_term].isalpha():
+                variable_char = cleaned_term[position_in_term]
+                literal_value = '1'
+                position_in_term += 1
             else:
-                pos += 1
+                position_in_term += 1
                 continue
 
             try:
-                index = var_names.index(literal_char)
-                parsed_binary_term[index] = value
+                variable_index = variable_names_list.index(variable_char)
+                parsed_binary_rep[variable_index] = literal_value
             except ValueError:
                 pass
 
-        t = Term("".join(parsed_binary_term))
-        t.covered_terms.add("".join(parsed_binary_term))
-        terms.append(t)
-    return terms
+        new_minterm = BooleanMinTerm("".join(parsed_binary_rep))
+        function_terms.append(new_minterm)
+    return function_terms
 
-def build_adder():
-    print("\n=== Одноразрядный двоичный сумматор на 3 входа ===")
-    var_names = ['A', 'B', 'C']
-    sdnf_S, sdnf_Cout = [], []
 
-    print("Таблица истинности:")
-    print("A B C | S Cout")
-    print("------+-------")
-    for A in range(2):
-        for B in range(2):
-            for C in range(2):
-                s = A + B + C
-                S = s % 2
-                Cout = s // 2
-                print(f"{A} {B} {C} | {S} {Cout}")
+def simulate_full_adder():
+    print("\n=== Одноразрядный полный двоичный сумматор (3 входа) ===")
+    adder_variable_names = ['A', 'B', 'C_in']
+    sum_sdnf_terms, carry_out_sdnf_terms = [], []
 
-                term_prefix = ""
-                term_prefix += ('1' if A else '0')
-                term_prefix += ('1' if B else '0')
-                term_prefix += ('1' if C else '0')
+    print("\nТаблица истинности для полного сумматора:")
+    print("A B C_in | Сумма ВыходПереноса")
+    print("---------+---------------")
 
-                if S == 1:
-                    sdnf_S.append(term_prefix)
-                if Cout == 1:
-                    sdnf_Cout.append(term_prefix)
+    for input_A in range(2):
+        for input_B in range(2):
+            for input_C_in in range(2):
+                binary_sum = input_A + input_B + input_C_in
+                sum_output = binary_sum % 2
+                carry_out = binary_sum // 2
 
-    sdnf_S_str = "|".join([f"({format_dnf_term(term, var_names)})" for term in sdnf_S])
-    print(f"\nСДНФ для S: {sdnf_S_str}")
+                print(f"{input_A} {input_B} {input_C_in}    | {sum_output}    {carry_out}")
 
-    terms_S = [Term(bin_term) for bin_term in sdnf_S]
-    minimized_S = glue_terms(terms_S, var_names)
+                current_binary_minterm = ""
+                current_binary_minterm += ('1' if input_A else '0')
+                current_binary_minterm += ('1' if input_B else '0')
+                current_binary_minterm += ('1' if input_C_in else '0')
 
-    print("Минимизированная форма S: ", end="")
-    minimized_S_formatted = [f"({format_dnf_term(term.vars, var_names)})" for term in minimized_S]
-    print("|".join(minimized_S_formatted))
+                if sum_output == 1:
+                    sum_sdnf_terms.append(current_binary_minterm)
+                if carry_out == 1:
+                    carry_out_sdnf_terms.append(current_binary_minterm)
 
-    sdnf_Cout_str = "|".join([f"({format_dnf_term(term, var_names)})" for term in sdnf_Cout])
-    print(f"\nСДНФ для Cout: {sdnf_Cout_str}")
+    sum_sdnf_str = "|".join([f"({format_logical_expression(term, adder_variable_names)})" for term in sum_sdnf_terms])
+    print(f"\nСовершенная дизъюнктивная нормальная форма (СДНФ) для суммы (S): {sum_sdnf_str}")
 
-    terms_Cout = [Term(bin_term) for bin_term in sdnf_Cout]
-    minimized_Cout = glue_terms(terms_Cout, var_names)
+    initial_sum_terms = [BooleanMinTerm(bin_term) for bin_term in sum_sdnf_terms]
+    minimized_sum_form = minimize_terms_quine_mccluskey(initial_sum_terms, adder_variable_names)
 
-    print("Минимизированная форма Cout: ", end="")
-    minimized_Cout_formatted = [f"({format_dnf_term(term.vars, var_names)})" for term in minimized_Cout]
-    print("|".join(minimized_Cout_formatted))
+    print("\nМинимизированное выражение для суммы (S): ", end="")
+    formatted_minimized_sum = [f"({format_logical_expression(term.binary_representation, adder_variable_names)})" for
+                               term in minimized_sum_form]
+    print("|".join(formatted_minimized_sum))
+
+    carry_out_sdnf_str = "|".join(
+        [f"({format_logical_expression(term, adder_variable_names)})" for term in carry_out_sdnf_terms])
+    print(f"\nСовершенная дизъюнктивная нормальная форма (СДНФ) для выходного переноса (C_out): {carry_out_sdnf_str}")
+
+    initial_carry_out_terms = [BooleanMinTerm(bin_term) for bin_term in carry_out_sdnf_terms]
+    minimized_carry_out_form = minimize_terms_quine_mccluskey(initial_carry_out_terms, adder_variable_names)
+
+    print("\nМинимизированное выражение для выходного переноса (C_out): ", end="")
+    formatted_minimized_carry_out = [f"({format_logical_expression(term.binary_representation, adder_variable_names)})"
+                                     for term in minimized_carry_out_form]
+    print("|".join(formatted_minimized_carry_out))
     print("")
 
-def to_bcd(decimal: int) -> list[int]:
-    decimal = decimal % 10
-    bcd = [0] * 4
-    bcd[0] = (decimal >> 3) & 1
-    bcd[1] = (decimal >> 2) & 1
-    bcd[2] = (decimal >> 1) & 1
-    bcd[3] = decimal & 1
-    return bcd
 
-def print_bcd_converter_table_and_dnf():
-    print("\n=== Преобразователь Д8421 в Д8421+6 ===")
-    var_names = ['A', 'B', 'C', 'D']
-    sdnf_Y1, sdnf_Y2, sdnf_Y3, sdnf_Y4 = [], [], [], []
+def decimal_to_binary_coded_decimal(decimal_digit: int) -> list[int]:
+    normalized_decimal = decimal_digit % 10
+    bcd_output = [0] * 4
 
-    print("D8421\t\tD8421+6")
+    bcd_output[0] = (normalized_decimal >> 3) & 1
+    bcd_output[1] = (normalized_decimal >> 2) & 1
+    bcd_output[2] = (normalized_decimal >> 1) & 1
+    bcd_output[3] = normalized_decimal & 1
+    return bcd_output
+
+
+def generate_bcd_plus_six_conversion():
+    print("\n=== Преобразователь BCD (8421) в BCD+6 ===")
+    bcd_variable_names = ['D_input_A', 'D_input_B', 'D_input_C', 'D_input_D']
+
+    sdnf_output_Y1, sdnf_output_Y2, sdnf_output_Y3, sdnf_output_Y4 = [], [], [], []
+
+    print("\nВход BCD (D8421)\tВыход BCD+6 (D8421)")
     print("A B C D\t\tY1 Y2 Y3 Y4")
-    print("--------------------------")
+    print("-----------------------------------")
 
     for i in range(10):
-        bits = to_bcd(i)
-        A, B, C, D = bits[0], bits[1], bits[2], bits[3]
-        term_binary_input = ""
-        term_binary_input += ('1' if A else '0')
-        term_binary_input += ('1' if B else '0')
-        term_binary_input += ('1' if C else '0')
-        term_binary_input += ('1' if D else '0')
+        input_bcd_bits = decimal_to_binary_coded_decimal(i)
 
-        result_decimal = (i + 6) % 10
-        output_bits = to_bcd(result_decimal)
-        Y1, Y2, Y3, Y4 = output_bits[0], output_bits[1], output_bits[2], output_bits[3]
+        D_input_A, D_input_B, D_input_C, D_input_D = input_bcd_bits[0], input_bcd_bits[1], input_bcd_bits[2], \
+        input_bcd_bits[3]
 
-        print(f"{A} {B} {C} {D}\t\t"
-              f"{Y1}  {Y2}  {Y3}  {Y4}")
+        current_binary_input_term = ""
+        current_binary_input_term += ('1' if D_input_A else '0')
+        current_binary_input_term += ('1' if D_input_B else '0')
+        current_binary_input_term += ('1' if D_input_C else '0')
+        current_binary_input_term += ('1' if D_input_D else '0')
 
-        if Y1 == 1: sdnf_Y1.append(term_binary_input)
-        if Y2 == 1: sdnf_Y2.append(term_binary_input)
-        if Y3 == 1: sdnf_Y3.append(term_binary_input)
-        if Y4 == 1: sdnf_Y4.append(term_binary_input)
+        resulting_decimal_value = (i + 6) % 10
+        output_bcd_bits = decimal_to_binary_coded_decimal(resulting_decimal_value)
 
-    outputs_to_minimize = [
-        ("Y1", sdnf_Y1), ("Y2", sdnf_Y2), ("Y3", sdnf_Y3), ("Y4", sdnf_Y4)
+        output_Y1, output_Y2, output_Y3, output_Y4 = output_bcd_bits[0], output_bcd_bits[1], output_bcd_bits[2], \
+        output_bcd_bits[3]
+
+        print(f"{D_input_A} {D_input_B} {D_input_C} {D_input_D}\t\t"
+              f"{output_Y1}  {output_Y2}  {output_Y3}  {output_Y4}")
+
+        if output_Y1 == 1: sdnf_output_Y1.append(current_binary_input_term)
+        if output_Y2 == 1: sdnf_output_Y2.append(current_binary_input_term)
+        if output_Y3 == 1: sdnf_output_Y3.append(current_binary_input_term)
+        if output_Y4 == 1: sdnf_output_Y4.append(current_binary_input_term)
+
+    output_functions_to_minimize = [
+        ("Y1", sdnf_output_Y1),
+        ("Y2", sdnf_output_Y2),
+        ("Y3", sdnf_output_Y3),
+        ("Y4", sdnf_output_Y4)
     ]
 
-    for output_name, sdnf_terms_binary in outputs_to_minimize:
-        print(f"\nСДНФ для {output_name}: ", end="")
-        if not sdnf_terms_binary:
+    for function_name, sdnf_binary_terms in output_functions_to_minimize:
+        print(f"\nСДНФ для {function_name}: ", end="")
+        if not sdnf_binary_terms:
             print("0")
         else:
-            sdnf_str_formatted = "|".join([f"({format_dnf_term(term, var_names)})" for term in sdnf_terms_binary])
-            print(sdnf_str_formatted)
+            formatted_sdnf_string = "|".join(
+                [f"({format_logical_expression(term, bcd_variable_names)})" for term in sdnf_binary_terms])
+            print(formatted_sdnf_string)
 
-            terms_for_minimization = [Term(bin_term) for bin_term in sdnf_terms_binary]
-            minimized_form = glue_terms(terms_for_minimization, var_names)
+            initial_terms_for_minimization = [BooleanMinTerm(bin_term) for bin_term in sdnf_binary_terms]
+            minimized_expression = minimize_terms_quine_mccluskey(initial_terms_for_minimization, bcd_variable_names)
 
-            print(f"Минимизированная форма {output_name}: ", end="")
-            if not minimized_form:
+            print(f"\nМинимизированное выражение для {function_name}: ", end="")
+            if not minimized_expression:
                 print("0")
             else:
-                minimized_form_formatted = "|".join([f"({format_dnf_term(term.vars, var_names)})" for term in minimized_form])
-                print(minimized_form_formatted)
+                formatted_minimized_expression = "|".join(
+                    [f"({format_logical_expression(term.binary_representation, bcd_variable_names)})" for term in
+                     minimized_expression])
+                print(formatted_minimized_expression)
 
-def process_bcd_conversion(input_number: int):
-    print(f"\n=== Обработка числа {input_number} ===")
-    decimal_input = input_number % 10 if input_number >= 0 else 0
-    result_decimal = (decimal_input + 6) % 10
 
-    input_bits = to_bcd(decimal_input)
-    output_bits = to_bcd(result_decimal)
+def calculate_bcd_plus_six_for_input(input_value: int):
+    print(f"\n--- Обработка входного числа: {input_value} ---")
+    decimal_input_digit = input_value % 10 if input_value >= 0 else 0
 
-    print(f"Входное число: {input_number} (используется: {decimal_input}, результат: {result_decimal})")
-    print(f"Вход (Д8421): {input_bits[0]} {input_bits[1]} {input_bits[2]} {input_bits[3]}")
-    print(f"Выход (Д8421+6): {output_bits[0]} {output_bits[1]} {output_bits[2]} {output_bits[3]} (десятичное: {result_decimal})")
+    resulting_decimal_digit = (decimal_input_digit + 6) % 10
+
+    input_bcd_representation = decimal_to_binary_coded_decimal(decimal_input_digit)
+    output_bcd_representation = decimal_to_binary_coded_decimal(resulting_decimal_digit)
+
+    print(
+        f"Входное десятичное: {input_value} (Используется: {decimal_input_digit}, Результат: {resulting_decimal_digit})")
+    print(f"Вход (BCD 8421): {' '.join(map(str, input_bcd_representation))}")
+    print(
+        f"Выход (BCD 8421+6): {' '.join(map(str, output_bcd_representation))} (Десятичное: {resulting_decimal_digit})")
+
 
 if __name__ == "__main__":
-    build_adder()
-    print_bcd_converter_table_and_dnf()
+    simulate_full_adder()
+
+    generate_bcd_plus_six_conversion()
 
     while True:
         try:
-            input_number = int(input("\nВведите целое число (для выхода введите отрицательное число): "))
-            if input_number < 0:
+            user_input_number = int(input("\nВведите целое число (для выхода введите отрицательное число): "))
+            if user_input_number < 0:
+                print("Выход из программы. До свидания!")
                 break
-            process_bcd_conversion(input_number)
+            calculate_bcd_plus_six_for_input(user_input_number)
         except ValueError:
             print("Неверный ввод. Пожалуйста, введите целое число.")
