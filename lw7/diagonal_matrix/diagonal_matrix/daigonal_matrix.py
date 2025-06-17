@@ -1,12 +1,12 @@
 class DiagonalMatrix:
     def __init__(self, size=16):
         self._size = size
-        self._matrix = [[False] * size for _ in range(size)]
+        self._matrix = [[0] * size for _ in range(size)]  # Используем 0 и 1 вместо bool
 
     def __str__(self):
         result = ''
         for row in self._matrix:
-            result += f'{[int(i) for i in row]}\n'
+            result += f'{row}\n'
         return result
 
     def init_from_list(self, data: list[list[int]]):
@@ -15,21 +15,21 @@ class DiagonalMatrix:
 
         for r_idx, row in enumerate(data):
             for c_idx, val in enumerate(row):
-                if val not in [0, 1, False, True]:
+                if val not in [0, 1]:
                     raise ValueError("Matrix elements must be 0 or 1.")
-                self._matrix[r_idx][c_idx] = bool(val)
+                self._matrix[r_idx][c_idx] = val
 
-    def get_word(self, j: int) -> list[bool]:
+    def get_word(self, j: int) -> list[int]:
         if not (0 <= j < self._size):
             raise IndexError(f"Word index j must be between 0 and {self._size - 1}")
         return [self._matrix[(i + j) % self._size][j] for i in range(self._size)]
 
-    def get_column(self, j: int) -> list[bool]:
+    def get_column(self, j: int) -> list[int]:
         if not (0 <= j < self._size):
             raise IndexError(f"Column index j must be between 0 and {self._size - 1}")
         return [self._matrix[(i + j) % self._size][i] for i in range(self._size)]
 
-    def write_word(self, j: int, word: list[bool]):
+    def write_word(self, j: int, word: list[int]):
         if len(word) != self._size:
             raise ValueError(f'Word length must be {self._size}')
         if any(bit not in [0, 1] for bit in word):
@@ -38,62 +38,79 @@ class DiagonalMatrix:
         for i in range(self._size):
             self._matrix[(i + j) % self._size][j] = word[i]
 
-    def f0(self, index1: int, index2: int) -> list[bool]:
-        return [False for _ in range(self._size)]
+    def f0(self, index1: int, index2: int) -> list[int]:
+        return [0 for _ in range(self._size)]
 
-    def f5(self, index1: int, index2: int) -> list[bool]:
+    def f5(self, index1: int, index2: int) -> list[int]:
         return self.get_word(index2)
 
-    def f10(self, index1: int, index2: int) -> list[bool]:
-        return [not i for i in self.get_word(index2)]
+    def f10(self, index1: int, index2: int) -> list[int]:
+        return [1 - bit for bit in self.get_word(index2)]  # Инверсия: 0 → 1, 1 → 0
 
-    def f15(self, index1: int, index2: int) -> list[bool]:
-        return [True for _ in range(self._size)]
+    def f15(self, index1: int, index2: int) -> list[int]:
+        return [1 for _ in range(self._size)]
 
     @property
-    def matrix(self) -> list[list[bool]]:
+    def matrix(self) -> list[list[int]]:
         return [row.copy() for row in self._matrix]
 
-
     def search_by_correspondence(self, reference_index, direction="top"):
+        def calculate_distance(current_idx, ref_idx):
+            return (current_idx - ref_idx) % self._size
+
+        def is_valid_top_search(distance):
+            return distance <= self._size // 2
+
+        def is_valid_bottom_search(distance):
+            return distance > self._size // 2
+
+        def get_effective_distance(distance, search_dir):
+            if search_dir == "top":
+                return distance
+            return self._size - distance
+
         target_word = self.get_word(reference_index)
-        nearest_index = -1
+        result_index = -1
         min_distance = float('inf')
 
-        for j in range(self._size):
-            if j == reference_index:
+        for current_index in range(self._size):
+            if current_index == reference_index:
                 continue
-            if self.get_word(j) == target_word:
-                distance = (j - reference_index) % self._size
 
-                if direction == "top":
-                    if distance > (self._size // 2):
-                        continue
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_index = j
-                elif direction == "bottom":
-                    if distance <= (self._size // 2):
-                        continue
-                    adjusted_distance = self._size - distance
-                    if adjusted_distance < min_distance:
-                        min_distance = adjusted_distance
-                        nearest_index = j
+            current_word = self.get_word(current_index)
+            if current_word != target_word:
+                continue
 
-        return nearest_index
+            distance = calculate_distance(current_index, reference_index)
 
-    def sum_V(self, V):
+            if direction == "top" and not is_valid_top_search(distance):
+                continue
+            if direction == "bottom" and not is_valid_bottom_search(distance):
+                continue
+
+            effective_distance = get_effective_distance(distance, direction)
+
+            if effective_distance < min_distance:
+                min_distance = effective_distance
+                result_index = current_index
+
+        return result_index
+
+    def sum_V(self, V: list[int]):
         if self._size != 16:
             raise ValueError("Matrix size must be 16 to perform this operation")
-        for j in range(self._size):
-            word = [int(i) for i in self.get_word(j)]
-            if word[:3] == V:
-                Aj = int(''.join(map(str, word[3:7])), 2)
-                Bj = int(''.join(map(str, word[7:11])), 2)
-                S_new = Aj + Bj
-                S_bits = list(map(int, f"{S_new:05b}"))[-5:]
 
-                Aj_bits = list(map(int, f"{Aj:04b}"))
-                Bj_bits = list(map(int, f"{Bj:04b}"))
-                new_word = word[:3] + Aj_bits + Bj_bits + S_bits
-                self.write_word(j, new_word)
+        def binary_list_to_int(binary_list: list[int]) -> int:
+            return int(''.join(map(str, binary_list)), 2)
+
+        def int_to_binary_list(number: int, bits=5) -> list[int]:
+            return [int(b) for b in f"{number:0{bits}b}"[-bits:]]
+
+        for i in range(self._size):
+            word = self.get_word(i)
+            if word[:3] == V:
+                Aj = binary_list_to_int(word[3:7])
+                Bj = binary_list_to_int(word[7:11])
+                Sj = Aj + Bj
+                new_word = word[:11] + int_to_binary_list(Sj)
+                self.write_word(i, new_word)
